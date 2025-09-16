@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, MapPin, Server, Zap, Shield, Globe, Filter, BarChart3, Building2, GitCompare, TrendingUp } from 'lucide-react';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Header from './components/Header';
 import DataCenterCard from './components/DataCenterCard';
 import InteractiveMap from './components/InteractiveMap';
@@ -7,13 +9,18 @@ import FilterPanel from './components/FilterPanel';
 import DataCenterDetails from './components/DataCenterDetails';
 import ComparisonTool from './components/ComparisonTool';
 import AdvancedAnalytics from './components/AdvancedAnalytics';
-import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
+import AuthModal from './components/AuthModal';
+import UserManagement from './components/UserManagement';
 import { dataCenters } from './data/dataCenters';
 import { DataCenter } from './types/DataCenter';
+import { mockUsers } from './contexts/AuthContext';
 
-function App() {
+function AppContent() {
+  const { isDark } = useTheme();
+  const { user } = useAuth();
   const [currentDataCenters, setCurrentDataCenters] = useState<DataCenter[]>(dataCenters);
+  const [currentUsers, setCurrentUsers] = useState(mockUsers);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('');
   const [selectedTier, setSelectedTier] = useState('');
@@ -21,12 +28,28 @@ function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'map' | 'analytics'>('grid');
   const [showComparison, setShowComparison] = useState(false);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showAllDataCenters, setShowAllDataCenters] = useState(false);
+
+  // Prioritize data centers based on user location
+  const prioritizedDataCenters = useMemo(() => {
+    if (!user || showAllDataCenters) {
+      return currentDataCenters;
+    }
+
+    const userCountryDCs = currentDataCenters.filter(dc => 
+      dc.country.toLowerCase() === user.country.toLowerCase()
+    );
+    const otherDCs = currentDataCenters.filter(dc => 
+      dc.country.toLowerCase() !== user.country.toLowerCase()
+    );
+
+    return [...userCountryDCs, ...otherDCs];
+  }, [currentDataCenters, user, showAllDataCenters]);
 
   const filteredDataCenters = useMemo(() => {
-    return currentDataCenters.filter(dc => {
+    return prioritizedDataCenters.filter(dc => {
       const matchesSearch = dc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           dc.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           dc.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -36,48 +59,48 @@ function App() {
       
       return matchesSearch && matchesLocation && matchesTier;
     });
-  }, [searchTerm, selectedLocation, selectedTier, currentDataCenters]);
+  }, [searchTerm, selectedLocation, selectedTier, prioritizedDataCenters]);
 
-  const locations = [...new Set(currentDataCenters.map(dc => dc.location))];
-  const tiers = [...new Set(currentDataCenters.map(dc => dc.tier))];
+  const locations = [...new Set(prioritizedDataCenters.map(dc => dc.location))];
+  const tiers = [...new Set(prioritizedDataCenters.map(dc => dc.tier))];
 
-  const handleAdminLogin = (email: string, password: string) => {
-    // Simple authentication - in production, this would be handled by a backend
-    if (email === 'admin@datacenter.com' && password === 'admin123') {
-      setIsAdminLoggedIn(true);
-      setShowAdminLogin(false);
-      setLoginError('');
+  const handleAuthClick = () => {
+    if (user?.role === 'admin') {
+      setShowAdminPanel(true);
     } else {
-      setLoginError('Invalid email or password');
+      setShowAuthModal(true);
     }
-  };
-
-  const handleAdminLogout = () => {
-    setIsAdminLoggedIn(false);
-  };
-
-  const handleShowAdminLogin = () => {
-    setShowAdminLogin(true);
   };
 
   const handleUpdateDataCenters = (newDataCenters: DataCenter[]) => {
     setCurrentDataCenters(newDataCenters);
   };
 
+  const handleUpdateUsers = (newUsers: typeof mockUsers) => {
+    setCurrentUsers(newUsers);
+  };
+
+  // Get user's country data centers count
+  const userCountryDCCount = user ? currentDataCenters.filter(dc => 
+    dc.country.toLowerCase() === user.country.toLowerCase()
+  ).length : 0;
+
   // Show admin panel if logged in
-  if (isAdminLoggedIn) {
+  if (showAdminPanel && user?.role === 'admin') {
     return (
       <AdminPanel
         dataCenters={currentDataCenters}
+        users={currentUsers}
         onUpdateDataCenters={handleUpdateDataCenters}
-        onLogout={handleAdminLogout}
+        onUpdateUsers={handleUpdateUsers}
+        onClose={() => setShowAdminPanel(false)}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header onAdminClick={handleShowAdminLogin} />
+    <div className={`min-h-screen transition-colors ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+      <Header onAuthClick={handleAuthClick} />
       
       {selectedDataCenter ? (
         <DataCenterDetails 
@@ -87,16 +110,20 @@ function App() {
       ) : (
         <>
           {/* Search and Controls Section */}
-          <div className="bg-white shadow-sm border-b">
+          <div className={`${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-sm border-b transition-colors`}>
             <div className="max-w-7xl mx-auto px-4 py-6">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
                 <div className="flex-1 max-w-2xl">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                    <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} />
                     <input
                       type="text"
                       placeholder="Search data centers by name, location, city..."
-                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
+                        isDark 
+                          ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                          : 'bg-white border-gray-200 text-gray-900 placeholder-gray-500'
+                      }`}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -108,21 +135,21 @@ function App() {
                     onClick={() => setShowFilters(!showFilters)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
                       showFilters 
-                        ? 'bg-blue-50 border-blue-200 text-blue-700' 
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                        ? (isDark ? 'bg-blue-900/20 border-blue-700 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700')
+                        : (isDark ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50')
                     }`}
                   >
                     <Filter className="h-4 w-4" />
                     Filters
                   </button>
                   
-                  <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                  <div className={`flex rounded-lg border overflow-hidden ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
                     <button
                       onClick={() => setViewMode('grid')}
                       className={`flex items-center gap-2 px-4 py-2 transition-colors ${
                         viewMode === 'grid' 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                          ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                          : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-600 hover:bg-gray-50')
                       }`}
                     >
                       <BarChart3 className="h-4 w-4" />
@@ -132,8 +159,8 @@ function App() {
                       onClick={() => setViewMode('map')}
                       className={`flex items-center gap-2 px-4 py-2 transition-colors ${
                         viewMode === 'map' 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                          ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                          : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-600 hover:bg-gray-50')
                       }`}
                     >
                       <MapPin className="h-4 w-4" />
@@ -143,8 +170,8 @@ function App() {
                       onClick={() => setViewMode('analytics')}
                       className={`flex items-center gap-2 px-4 py-2 transition-colors ${
                         viewMode === 'analytics' 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                          ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                          : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-600 hover:bg-gray-50')
                       }`}
                     >
                       <TrendingUp className="h-4 w-4" />
@@ -154,7 +181,7 @@ function App() {
                   
                   <button
                     onClick={() => setShowComparison(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-200"
                   >
                     <GitCompare className="h-4 w-4" />
                     Compare
@@ -184,15 +211,28 @@ function App() {
             {viewMode !== 'analytics' && (
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
+                  <h2 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                     Data Centers ({filteredDataCenters.length})
                   </h2>
-                  <p className="text-gray-600 mt-1">
-                    {searchTerm && `Results for "${searchTerm}"`}
+                  <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
+                    {user && userCountryDCCount > 0 && !showAllDataCenters && (
+                      <span className="text-blue-500 font-medium">
+                        Showing {userCountryDCCount} data centers in {user.country} first • 
+                      </span>
+                    )}
+                    {searchTerm && ` Results for "${searchTerm}"`}
                     {selectedLocation && ` in ${selectedLocation}`}
                     {selectedTier && ` • Tier ${selectedTier}`}
                   </p>
                 </div>
+                {user && userCountryDCCount > 0 && !showAllDataCenters && (
+                  <button
+                    onClick={() => setShowAllDataCenters(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-medium"
+                  >
+                    Show All Data Centers
+                  </button>
+                )}
               </div>
             )}
 
@@ -218,9 +258,9 @@ function App() {
 
             {filteredDataCenters.length === 0 && (
               <div className="text-center py-12">
-                <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No data centers found</h3>
-                <p className="text-gray-500">Try adjusting your search criteria or filters</p>
+                <Building2 className={`h-12 w-12 mx-auto mb-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <h3 className={`text-lg font-medium mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>No data centers found</h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Try adjusting your search criteria or filters</p>
               </div>
             )}
           </div>
@@ -234,17 +274,23 @@ function App() {
         />
       )}
       
-      {showAdminLogin && (
-        <AdminLogin
-          onLogin={handleAdminLogin}
-          onClose={() => {
-            setShowAdminLogin(false);
-            setLoginError('');
-          }}
-          error={loginError}
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
         />
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
